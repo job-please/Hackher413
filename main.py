@@ -1,27 +1,32 @@
 import cv2 as cv
-# import mss as mss
-# from PIL import Image
 import numpy as np
 import mediapipe as mp
-import pyvista as pv
+from flask import Flask, render_template
+from flask_socketio import SocketIO
 import threading
+
+# create flask app and socket
+app = Flask(__name__)
+socket = SocketIO(app)
+@app.route("/")
+def home():
+    return render_template('frontend.html')
+
+# webcam video capture
+vid = cv.VideoCapture(0)
 
 # mediapipe vision setup
 mp_draw = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 
-# 3d plot
-plot = pv.Plotter()
-
 # create landmarker
-with mp_hands.Hands(static_image_mode=True, max_num_hands=2, min_detection_confidence=.5) as hands:
+hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=.5)
 
-    # webcam video capture
-    vid = cv.VideoCapture(0)
+# get hand pose data from webcam
+def get_hand_data():
     while True:
 
-        # clear plot
-        plot.clear()
+        frame_landmarks = []
 
         # process frame
         ret, frame = vid.read(0)
@@ -35,27 +40,27 @@ with mp_hands.Hands(static_image_mode=True, max_num_hands=2, min_detection_confi
             # get current frame landmark info
             for hand_landmarks in landmarks.multi_hand_landmarks:
                 mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                frame_landmarks = []
+                cur_hand_landmarks = []
                 for landmark in hand_landmarks.landmark:
-                    coords = [landmark.x,
+                    coords = (landmark.x,
                               landmark.y,
-                              landmark.z]
+                              landmark.z)
                     
-                    frame_landmarks.append(coords)
-                
-                frame_landmarks = np.array(frame_landmarks)
-                frame_landmarks *= 100
-                plot.add_points(frame_landmarks, color='red', point_size=10)
-        
-        plot.render()
+                    cur_hand_landmarks.append(coords)
 
-        plot.show()
-        
-        cv.imshow("VIDEO", frame)
+                frame_landmarks = cur_hand_landmarks
 
-        if cv.waitKey(1) & 0xFF == ord('q'):
-            break
+            socket.emit('new_data', {'frame_landmarks': frame_landmarks})
 
-# destroy windows
-print("CLOSING")
-cv.destroyAllWindows()
+        # cv.imshow("VIDEO", frame)
+        # if cv.waitKey(1) & 0xFF == ord('q'):
+        #     break
+    
+    # destroy windows
+    # cv.destroyAllWindows()
+
+
+
+if __name__=='__main__':
+    threading.Thread(target=get_hand_data, daemon=True).start()
+    app.run()
